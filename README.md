@@ -1,4 +1,4 @@
-# Serverless Task Manager API (AWS SAM)
+# Serverless Task Manager API
 This is a simple demo Task Management API built with Node.js 20.x and deployed on AWS using the Serverless Application Model (SAM). The project utilizes several AWS core services including AWS Lambda, Amazon API Gateway, Amazon DynamoDB, Amazon CloudWatch, and AWS IAM.
 # 1. Getting Started
 ## Clone project
