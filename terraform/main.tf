@@ -18,7 +18,8 @@ data "archive_file" "lambda_bundle" {
   output_path = "${path.module}/../lambda_bundle.zip" # Path where the zip file is created with a hash code. [If you edit one character in Node.js code -> Zip file changes -> Hash code changes.]
   
   excludes = [ # Do not include these files in the zip
-    "lambda_bundle.zip","terraform"
+    "terraform", ".terraform", "terraform.tfstate", "terraform.tfstate.backup", ".terraform.lock.hcl", "lambda_bundle.zip", ".git", ".gitignore", "README.md",
+    ".DS_Store", "package-lock.json"
   ]
 }
 
