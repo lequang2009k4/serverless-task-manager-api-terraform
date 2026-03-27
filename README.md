@@ -20,25 +20,29 @@ Download and install the GPG key to verify the integrity of the packages:
 ```
 wget -O- https://apt.releases.hashicorp.com/gpg | \
 gpg --dearmor | \
-sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null```
+sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
+```
 3. Add the Official Repository
 Run the following command to add the HashiCorp repository to your system’s software sources:
-```echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+```
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
 https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
-sudo tee /etc/apt/sources.list.d/hashicorp.list```
+sudo tee /etc/apt/sources.list.d/hashicorp.list
+```
 4. Install Terraform
 Now, update your package list again and install the CLI:
 ```
 sudo apt update
-sudo apt install terraform```
+sudo apt install terraform
+```
 5. Verify the Installation
 Check that Terraform is installed correctly and see the version:
 ```
-terraform -version```
+terraform -version
+```
 ## Clone project
 ```
 git clone https://github.com/lequang2009k4/serverless-task-manager-api-terraform.git
-cd serverless-task-manager-api
 ```
 ## Project Structure
 ```
