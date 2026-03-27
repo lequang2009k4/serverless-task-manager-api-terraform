@@ -1,6 +1,40 @@
 # Serverless Task Manager API
 This is a simple demo Task Management API built with Node.js 20.x and deployed on AWS using Terraform. The project utilizes several AWS core services including AWS Lambda,Congito, Amazon API Gateway, Amazon DynamoDB, Amazon CloudWatch, and AWS IAM
 # 1. Getting Started
+## Config AWS
+On AWS, you create IAM user with admin premission. Next, you take access key to config
+On your computer, you will create folder ~/.aws/credentials with content:
+```
+[default]
+aws_access_key_id=<your-id>
+aws_secret_access_key=<your-key> 
+```
+## Install Terraform on Ubuntu
+1. Install Prerequisites
+Ensure your system is up to date and you have the necessary tools for adding new repositories:
+```
+sudo apt update && sudo apt install -y gnupg software-properties-common curl
+```
+2. Add the HashiCorp GPG Key
+Download and install the GPG key to verify the integrity of the packages:
+```
+wget -O- https://apt.releases.hashicorp.com/gpg | \
+gpg --dearmor | \
+sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null```
+3. Add the Official Repository
+Run the following command to add the HashiCorp repository to your system’s software sources:
+```echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
+sudo tee /etc/apt/sources.list.d/hashicorp.list```
+4. Install Terraform
+Now, update your package list again and install the CLI:
+```
+sudo apt update
+sudo apt install terraform```
+5. Verify the Installation
+Check that Terraform is installed correctly and see the version:
+```
+terraform -version```
 ## Clone project
 ```
 git clone https://github.com/lequang2009k4/serverless-task-manager-api-terraform.git
