@@ -1,5 +1,5 @@
 # Serverless Task Manager API
-This is a simple demo Task Management API built with Node.js 20.x and deployed on AWS using Terraform. The project utilizes several AWS core services including AWS Lambda,Congito, Amazon API Gateway, Amazon DynamoDB, Amazon CloudWatch, and AWS IAM
+This is a simple demo Task Management API built with Node.js 20.x and deployed on AWS using Terraform. The project utilizes several AWS core services including AWS Lambda,Congito, Amazon API Gateway, Amazon DynamoDB, Amazon CloudWatch, AWS IAM, SQS. Compare async and sync archetecture
 # 1. Getting Started
 ## Config AWS
 On AWS, you create IAM user with admin premission. Next, you take access key to config
@@ -49,10 +49,11 @@ git clone https://github.com/lequang2009k4/serverless-task-manager-api-terraform
 serverless-task-manager-api/
 ├── src/
 │   ├── handlers/                # Lambda Entry Points 
-│   │   ├── createTask.js        
-│   │   ├── getAllTasks.js
+│   │   ├── createConsumer.js        
+│   │   ├── taskProducer.js
 │   │   ├── getTaskById.js
-│   │   └── deleteTask.js
+│   │   ├── getTaskById.js
+│   │   └── deleteConsumer.js
 │   │
 │   ├── services/                # Business Logic Layer
 │   │   └── taskService.js       
