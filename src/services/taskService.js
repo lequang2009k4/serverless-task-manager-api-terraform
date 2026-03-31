@@ -10,8 +10,9 @@ export const taskService = {
     // Logic to create a new task
     async createNewTask(data) {
         // 1. Create a new Task entity (Model handles default configurations)
+        const taskId = data.id || uuidv4();
         const newTask = new Task({
-            id: uuidv4(),
+            id: taskId,
             title: data.title,
         });
 

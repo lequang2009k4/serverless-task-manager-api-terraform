@@ -51,6 +51,39 @@ resource "aws_dynamodb_table" "tasks" {
   tags = { Environment = var.env } # Tags for management
 }
 
+# --- 3.1 SQS QUEUES WITH DLQ ---
+
+# DLQ for crete flow
+resource "aws_sqs_queue" "create_task_dlq" {
+  name = "create-task-dlq-${var.env}"
+}
+
+resource "aws_sqs_queue" "create_task_q" {
+  name                       = "create-task-q-${var.env}"
+  visibility_timeout_seconds = 30 # it gives your Lambda Consumer enough time to process the message before SQS thinks it failed and tries to send it to another worker.
+  
+  # Config Redrive Policy: If error 3 time, i send it to DLQ
+  redrive_policy = jsonencode({ # policy of redirect error
+    deadLetterTargetArn = aws_sqs_queue.create_task_dlq.arn
+    maxReceiveCount     = 3 # message causes the Lambda to crash 3 times
+  })
+}
+
+# DLQ for Delete flow
+resource "aws_sqs_queue" "delete_task_dlq" {
+  name = "delete-task-dlq-${var.env}"
+}
+
+resource "aws_sqs_queue" "delete_task_q" {
+  name                       = "delete-task-q-${var.env}"
+  visibility_timeout_seconds = 30
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.delete_task_dlq.arn
+    maxReceiveCount     = 3
+  })
+}
+
 # --- 4. IAM ROLE & POLICY ---
 # 1. Create a "Title" (Role) due to AWS Zero Trust
 resource "aws_iam_role" "lambda_exec" {
@@ -84,31 +117,69 @@ resource "aws_iam_role_policy" "lambda_common_policy" {
         Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
         Effect   = "Allow"
         Resource = "arn:aws:logs:*:*:*" # Permission to write logs to AWS monitoring system | Every console.log() in Node.js will be pushed to CloudWatch Logs
+      },
+      #  Permission Group 3: SQS
+      {
+        Action   = ["sqs:SendMessage", "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+        Effect   = "Allow"
+        Resource = [
+          aws_sqs_queue.create_task_q.arn, 
+          aws_sqs_queue.create_task_dlq.arn,
+          aws_sqs_queue.delete_task_q.arn,
+          aws_sqs_queue.delete_task_dlq.arn
+        ]
       }
     ]
   })
 }
 
 # --- 5. LAMBDA FUNCTIONS ---
-locals { # Use locals for grouping
+# Cập nhật local lambda_env để có thêm SQS_URL
+locals {
   lambda_env = {
     variables = {
-      TABLE_NAME = aws_dynamodb_table.tasks.name # Tells Lambda the DB table name
-      NODE_ENV   = var.env # dev or prod
+      TABLE_NAME            = aws_dynamodb_table.tasks.name
+      CREATE_TASK_QUEUE_URL = aws_sqs_queue.create_task_q.id #id: url
+      DELETE_TASK_QUEUE_URL = aws_sqs_queue.delete_task_q.id
+      NODE_ENV              = var.env
     }
   }
-  runtime = "nodejs20.x"  # Using Node.js 20
+  runtime = "nodejs20.x"
+}
+//producer
+
+# 5.1 PRODUCER (POST & DELETE Entry Point)
+resource "aws_lambda_function" "task_producer" {
+  function_name    = "TaskProducer-${var.env}"
+  handler          = "src/handlers/taskProducer.handler"
+  runtime          = local.runtime
+  role             = aws_iam_role.lambda_exec.arn
+  filename         = data.archive_file.lambda_bundle.output_path
+  source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
+  environment { variables = local.lambda_env.variables }
+}
+//consumer
+# 5.2 CONSUMERS (Background Workers)
+resource "aws_lambda_function" "create_consumer" {
+  function_name    = "CreateConsumer-${var.env}"
+  handler          = "src/handlers/createConsumer.handler"
+  runtime          = local.runtime
+  role             = aws_iam_role.lambda_exec.arn
+  filename         = data.archive_file.lambda_bundle.output_path
+  source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
+  environment { variables = local.lambda_env.variables }
 }
 
-resource "aws_lambda_function" "create_task" {
-  function_name    = "CreateTask-${var.env}"
-  handler          = "src/handlers/createTask.handler"
+resource "aws_lambda_function" "delete_consumer" {
+  function_name    = "DeleteConsumer-${var.env}"
+  handler          = "src/handlers/deleteConsumer.handler"
   runtime          = local.runtime
-  role             = aws_iam_role.lambda_exec.arn # Wear the IAM Role "ID Badge"
-  filename         = data.archive_file.lambda_bundle.output_path 
-  source_code_hash = data.archive_file.lambda_bundle.output_base64sha256 # Terraform sees a new Hash different from the one on AWS -> It commands: "Update code now!".
-  environment { variables = local.lambda_env.variables } # Passes env vars; Terraform handles it so your JS code doesn't need to hardcode the table name: const tableName = process.env.TABLE_NAME
+  role             = aws_iam_role.lambda_exec.arn
+  filename         = data.archive_file.lambda_bundle.output_path
+  source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
+  environment { variables = local.lambda_env.variables }
 }
+
 
 resource "aws_lambda_function" "get_all_tasks" {
   function_name    = "GetAllTasks-${var.env}"
@@ -129,16 +200,19 @@ resource "aws_lambda_function" "get_task_by_id" {
   source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
   environment { variables = local.lambda_env.variables }
 }
-
-resource "aws_lambda_function" "delete_task" {
-  function_name    = "DeleteTask-${var.env}"
-  handler          = "src/handlers/deleteTask.handler"
-  runtime          = local.runtime
-  role             = aws_iam_role.lambda_exec.arn
-  filename         = data.archive_file.lambda_bundle.output_path
-  source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
-  environment { variables = local.lambda_env.variables }
+# --- 5.4 EVENT SOURCE MAPPING (SQS -> Lambda consummer) ---
+resource "aws_lambda_event_source_mapping" "create_trigger" {
+  event_source_arn = aws_sqs_queue.create_task_q.arn # nguồn sự kiện
+  function_name    = aws_lambda_function.create_consumer.arn
+  batch_size       = 5 # Instead of spinning up a Lambda for every single task, AWS "collects" up to 5 tasks and processes them in one go.
 }
+
+resource "aws_lambda_event_source_mapping" "delete_trigger" {
+  event_source_arn = aws_sqs_queue.delete_task_q.arn
+  function_name    = aws_lambda_function.delete_consumer.arn
+  batch_size       = 5
+}
+
 
 # --- 6. API GATEWAY ---
 # Receives guests (Endpoint), Checks IDs (Authorizer), and Leads guests to the right room (Integration)
@@ -189,22 +263,40 @@ resource "aws_api_gateway_resource" "task_id" {
 # + Method: Defines action type and security (Who can enter?).
 # + Integration: Defines destination (Who to meet?).
 
-# POST /tasks
+# POST /tasks -> TaskProducer
 resource "aws_api_gateway_method" "post_task" {
   rest_api_id   = aws_api_gateway_rest_api.main.id
-  resource_id   = aws_api_gateway_resource.tasks.id # Attached to /tasks hall
-  http_method   = "POST" # POST action
-  authorization = "COGNITO_USER_POOLS" # Cognito ID required
-  authorizer_id = aws_api_gateway_authorizer.cognito_auth.id  # Uses created card scanner
+  resource_id   = aws_api_gateway_resource.tasks.id
+  http_method   = "POST"
+  authorization = "COGNITO_USER_POOLS"
+  authorizer_id = aws_api_gateway_authorizer.cognito_auth.id
 }
 
 resource "aws_api_gateway_integration" "post_task_int" {
   rest_api_id             = aws_api_gateway_rest_api.main.id
   resource_id             = aws_api_gateway_resource.tasks.id
   http_method             = aws_api_gateway_method.post_task.http_method
-  integration_http_method = "POST" # AWS Standard: Calling Lambda always uses POST [Clients can call API via GET/DELETE/PUT -> but when API Gateway calls Lambda, it uses AWS internal POST protocol]
-  type                    = "AWS_PROXY" # "Full Proxy" mode -> "Express delivery", API Gateway won't interfere with data. It bundles Header, Body, Query Params... into an Event and throws it to Lambda.
-  uri                     = aws_lambda_function.create_task.invoke_arn # Leads to CreateTask function
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.task_producer.invoke_arn
+}
+
+# DELETE /tasks/{id} -> TaskProducer
+resource "aws_api_gateway_method" "delete_task_id" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.task_id.id
+  http_method   = "DELETE"
+  authorization = "COGNITO_USER_POOLS"
+  authorizer_id = aws_api_gateway_authorizer.cognito_auth.id
+}
+
+resource "aws_api_gateway_integration" "delete_task_id_int" {
+  rest_api_id             = aws_api_gateway_rest_api.main.id
+  resource_id             = aws_api_gateway_resource.task_id.id
+  http_method             = aws_api_gateway_method.delete_task_id.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.task_producer.invoke_arn
 }
 
 # GET /tasks
@@ -243,29 +335,12 @@ resource "aws_api_gateway_integration" "get_task_id_int" {
   uri                     = aws_lambda_function.get_task_by_id.invoke_arn
 }
 
-# DELETE /tasks/{id}
-resource "aws_api_gateway_method" "delete_task_id" {
-  rest_api_id   = aws_api_gateway_rest_api.main.id
-  resource_id   = aws_api_gateway_resource.task_id.id
-  http_method   = "DELETE"
-  authorization = "COGNITO_USER_POOLS"
-  authorizer_id = aws_api_gateway_authorizer.cognito_auth.id
-}
-
-resource "aws_api_gateway_integration" "delete_task_id_int" {
-  rest_api_id             = aws_api_gateway_rest_api.main.id
-  resource_id             = aws_api_gateway_resource.task_id.id
-  http_method             = aws_api_gateway_method.delete_task_id.http_method
-  integration_http_method = "POST"
-  type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.delete_task.invoke_arn
-}
 
 # --- 8. LAMBDA PERMISSIONS ---
 # Allows API Gateway the right to trigger Lambda
-resource "aws_lambda_permission" "apigw_create" {
+resource "aws_lambda_permission" "apigw_producer" {
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.create_task.function_name
+  function_name = aws_lambda_function.task_producer.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_api_gateway_rest_api.main.execution_arn}/*/*"
 }
@@ -285,12 +360,6 @@ resource "aws_lambda_permission" "apigw_get_id" {
   source_arn    = "${aws_api_gateway_rest_api.main.execution_arn}/*/*"
 }
 
-resource "aws_lambda_permission" "apigw_delete" {
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.delete_task.function_name
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_api_gateway_rest_api.main.execution_arn}/*/*"
-}
 
 # --- 9. DEPLOYMENT & STAGE ---
 resource "aws_api_gateway_deployment" "main" { # The "Publish" button
@@ -313,13 +382,7 @@ resource "aws_api_gateway_deployment" "main" { # The "Publish" button
       
       # 1. Monitor Path configurations
       aws_api_gateway_resource.tasks,
-      
-      # 2. Monitor Method details (e.g., changing Authorization = "NONE" changes the Hash)
-      aws_api_gateway_method.post_task,
-      
-      # 3. Monitor "Pipes" (Integration) (e.g., changing Lambda Function changes the Hash)
-      aws_api_gateway_integration.post_task_int,
-      
+            
       # 4. Monitor Security configurations
       aws_api_gateway_authorizer.cognito_auth,
       
