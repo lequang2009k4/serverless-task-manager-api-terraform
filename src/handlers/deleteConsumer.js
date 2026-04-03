@@ -5,9 +5,10 @@ export const handler = async (event) => {
     for (const record of event.Records) {
         try {
             const data = JSON.parse(record.body);
+           
             // Logging both MessageId (SQS tracking) and TaskId (DynamoDB ID)
             console.log(`[CONSUMER-DELETE] MessageId: ${record.messageId} | Deleting task: ${data.id}`);
-
+            // throw new Error("Simulated Database Timeout Error");
             // Call the delete logic from the service layer
             await taskService.removeTask(data.id);
 
