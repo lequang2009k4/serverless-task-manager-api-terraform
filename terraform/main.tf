@@ -148,13 +148,25 @@ locals {
 }
 //producer
 
-# 5.1 PRODUCER (POST & DELETE Entry Point)
-resource "aws_lambda_function" "task_producer" {
-  function_name    = "TaskProducer-${var.env}"
-  handler          = "src/handlers/taskProducer.handler"
-  runtime          = local.runtime
-  role             = aws_iam_role.lambda_exec.arn
-  filename         = data.archive_file.lambda_bundle.output_path
+# 5.1 PRODUCER (POST & DELETE)
+# Create Producer Lambda
+resource "aws_lambda_function" "create_producer" {
+  function_name = "CreateProducer-${var.env}"
+  handler       = "src/handlers/createProducer.handler"
+  runtime       = local.runtime
+  role          = aws_iam_role.lambda_exec.arn
+  filename      = data.archive_file.lambda_bundle.output_path
+  source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
+  environment { variables = local.lambda_env.variables }
+}
+
+# Delete Producer Lambda
+resource "aws_lambda_function" "delete_producer" {
+  function_name = "DeleteProducer-${var.env}"
+  handler       = "src/handlers/deleteProducer.handler"
+  runtime       = local.runtime
+  role          = aws_iam_role.lambda_exec.arn
+  filename      = data.archive_file.lambda_bundle.output_path
   source_code_hash = data.archive_file.lambda_bundle.output_base64sha256
   environment { variables = local.lambda_env.variables }
 }
@@ -265,7 +277,7 @@ resource "aws_api_gateway_resource" "task_id" {
 # + Method: Defines action type and security (Who can enter?).
 # + Integration: Defines destination (Who to meet?).
 
-# POST /tasks -> TaskProducer
+# POST /tasks 
 resource "aws_api_gateway_method" "post_task" {
   rest_api_id   = aws_api_gateway_rest_api.main.id
   resource_id   = aws_api_gateway_resource.tasks.id
@@ -280,10 +292,10 @@ resource "aws_api_gateway_integration" "post_task_int" {
   http_method             = aws_api_gateway_method.post_task.http_method
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.task_producer.invoke_arn
+  uri                     = aws_lambda_function.create_producer.invoke_arn
 }
 
-# DELETE /tasks/{id} -> TaskProducer
+# DELETE /tasks/{id} 
 resource "aws_api_gateway_method" "delete_task_id" {
   rest_api_id   = aws_api_gateway_rest_api.main.id
   resource_id   = aws_api_gateway_resource.task_id.id
@@ -298,7 +310,7 @@ resource "aws_api_gateway_integration" "delete_task_id_int" {
   http_method             = aws_api_gateway_method.delete_task_id.http_method
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.task_producer.invoke_arn
+  uri                     = aws_lambda_function.delete_producer.invoke_arn
 }
 
 # GET /tasks
@@ -340,9 +352,16 @@ resource "aws_api_gateway_integration" "get_task_id_int" {
 
 # --- 8. LAMBDA PERMISSIONS ---
 # Allows API Gateway the right to trigger Lambda
-resource "aws_lambda_permission" "apigw_producer" {
+resource "aws_lambda_permission" "apigw_create_producer" {
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.task_producer.function_name
+  function_name = aws_lambda_function.create_producer.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.main.execution_arn}/*/*"
+}
+
+resource "aws_lambda_permission" "apigw_delete_producer" {
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.delete_producer.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_api_gateway_rest_api.main.execution_arn}/*/*"
 }
