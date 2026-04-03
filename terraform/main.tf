@@ -205,12 +205,14 @@ resource "aws_lambda_event_source_mapping" "create_trigger" {
   event_source_arn = aws_sqs_queue.create_task_q.arn # nguồn sự kiện
   function_name    = aws_lambda_function.create_consumer.arn
   batch_size       = 5 # Instead of spinning up a Lambda for every single task, AWS "collects" up to 5 tasks and processes them in one go.
+  maximum_batching_window_in_seconds = 10
 }
 
 resource "aws_lambda_event_source_mapping" "delete_trigger" {
   event_source_arn = aws_sqs_queue.delete_task_q.arn
   function_name    = aws_lambda_function.delete_consumer.arn
   batch_size       = 5
+  maximum_batching_window_in_seconds = 10
 }
 
 
