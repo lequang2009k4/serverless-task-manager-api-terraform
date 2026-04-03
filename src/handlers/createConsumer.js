@@ -5,6 +5,8 @@ export const handler = async (event) => {
     for (const record of event.Records) {
         try {
             const data = JSON.parse(record.body);
+           // throw new Error("Simulated Database Timeout Error");
+   
             // Logging both MessageId (Infrastructure) and TaskId (Business) for tracing
             console.log(`[CONSUMER-CREATE] MessageId: ${record.messageId} | Processing task: ${data.id}`);
 
